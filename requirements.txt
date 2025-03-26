@@ -1,2 +1,4 @@
 requests
 tabulate
+dnspython
+python-whois
