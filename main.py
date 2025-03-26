@@ -113,8 +113,29 @@ def evaluate_domain(domain):
         "Strict-Transport-Security": header_results["Strict-Transport-Security"],
         "X-Frame-Options": header_results["X-Frame-Options"],
         "X-XSS-Protection": header_results["X-XSS-Protection"],
-        "Content-Security-Policy": header_results["Content-Security-Policy"]
+        "Content-Security-Policy": header_results["Content-Security-Policy"],
+        "Blacklist Status": check_dnsbl(domain) 
     }
+
+    
+def check_dnsbl(domain):
+    dnsbls = [
+        "zen.spamhaus.org",
+        "bl.spamcop.net"
+    ]
+    try:
+        ip = socket.gethostbyname(domain)
+        reversed_ip = '.'.join(reversed(ip.split('.')))
+        for dnsbl in dnsbls:
+            query = f"{reversed_ip}.{dnsbl}"
+            try:
+                socket.gethostbyname(query)
+                return "Listed"
+            except socket.gaierror:
+                continue  # Not listed in this DNSBL
+        return "Clean"
+    except Exception as e:
+        return f"Error: {e}"
 
 def print_results(results):
     for r in results:
@@ -129,6 +150,7 @@ def print_results(results):
         print(f"X-Frame-Options: {r['X-Frame-Options']}")
         print(f"X-XSS-Protection: {r['X-XSS-Protection']}")
         print(f"Content-Security-Policy: {r['Content-Security-Policy']}")
+        print(f"Blacklist Status: {r['Blacklist Status']}")
         print("=" * 50)
         print()
 
