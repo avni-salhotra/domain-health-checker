@@ -2,8 +2,8 @@ import requests
 import socket
 import ssl
 import dns.resolver
+import whois
 from datetime import datetime, timezone
-from tabulate import tabulate
 
 def check_http_status(domain):
     try:
@@ -97,16 +97,19 @@ def check_security_headers(domain):
 def evaluate_domain(domain):
     is_up = check_http_status(domain)
     ssl_days_left = get_ssl_expiry(domain) if is_up else None
+    domain_expiry_days = get_domain_expiry(domain)  # 👈 new line
 
     print(f"[DEBUG] Checking {domain} | Up: {is_up} | SSL Days Left: {ssl_days_left}")
 
     mail_results = check_mail_records(domain)
     header_results = check_security_headers(domain)
+    tech_results = check_tech_stack(domain)
 
     return {
         "Domain": domain,
         "Up": "Yes" if is_up else "No",
         "SSL Days Left": ssl_days_left if ssl_days_left is not None else "-",
+        "Domain Expiry (days)": domain_expiry_days,
         "SPF": mail_results["SPF"],
         "DKIM": mail_results["DKIM"],
         "DMARC": mail_results["DMARC"],
@@ -114,7 +117,11 @@ def evaluate_domain(domain):
         "X-Frame-Options": header_results["X-Frame-Options"],
         "X-XSS-Protection": header_results["X-XSS-Protection"],
         "Content-Security-Policy": header_results["Content-Security-Policy"],
-        "Blacklist Status": check_dnsbl(domain) 
+        "Blacklist Status": check_dnsbl(domain),
+        "HTTP to HTTPS Redirect": check_http_to_https(domain),
+        "Server": tech_results["Server"],
+        "X-Powered-By": tech_results["X-Powered-By"],
+        "Framework": tech_results["Framework"]
     }
 
     
@@ -137,6 +144,66 @@ def check_dnsbl(domain):
     except Exception as e:
         return f"Error: {e}"
 
+
+def get_domain_expiry(domain):
+    import whois
+    try:
+        w = whois.whois(domain)
+        expiry_date = w.expiration_date
+
+        # Handle cases where it's a list
+        if isinstance(expiry_date, list):
+            expiry_date = expiry_date[0]
+
+        if expiry_date is None:
+            return "Unknown"
+
+        # Make the datetime timezone-aware
+        if expiry_date.tzinfo is None:
+            expiry_date = expiry_date.replace(tzinfo=timezone.utc)
+
+        days_left = (expiry_date - datetime.now(timezone.utc)).days
+        return days_left
+    except Exception as e:
+        print(f"[DEBUG] WHOIS lookup failed for {domain}: {e}")
+        return f"Error: {e}"
+
+def check_http_to_https(domain):
+    try:
+        response = requests.get(f"http://{domain}", timeout=5, allow_redirects=True)
+        final_url = response.url
+        if final_url.startswith("https://"):
+            return "Yes"
+        else:
+            return "No"
+    except Exception as e:
+        print(f"[DEBUG] Redirect check failed for {domain}: {e}")
+        return f"Error: {e}"
+
+def check_tech_stack(domain):
+    stack_info = {"Server": "Unknown", "X-Powered-By": "Unknown"}
+
+    try:
+        response = requests.get(f"https://{domain}", timeout=5)
+        if "Server" in response.headers:
+            stack_info["Server"] = response.headers["Server"]
+        if "X-Powered-By" in response.headers:
+            stack_info["X-Powered-By"] = response.headers["X-Powered-By"]
+        
+        # Optionally: sniff WordPress
+        if "wp-content" in response.text or "wp-includes" in response.text:
+            stack_info["Framework"] = "WordPress"
+        elif '<meta name="generator"' in response.text:
+            stack_info["Framework"] = "Detected from meta tag"
+        else:
+            stack_info["Framework"] = "Unknown"
+
+    except Exception as e:
+        print(f"[DEBUG] Tech stack detection failed for {domain}: {e}")
+        stack_info["Error"] = str(e)
+
+    return stack_info
+
 def print_results(results):
     for r in results:
         print("=" * 50)
@@ -151,6 +218,11 @@ def print_results(results):
         print(f"X-XSS-Protection: {r['X-XSS-Protection']}")
         print(f"Content-Security-Policy: {r['Content-Security-Policy']}")
         print(f"Blacklist Status: {r['Blacklist Status']}")
+        print(f"Domain Expiry (days): {r['Domain Expiry (days)']}")
+        print(f"HTTP to HTTPS Redirect: {r['HTTP to HTTPS Redirect']}")
+        print(f"Server: {r['Server']}")
+        print(f"X-Powered-By: {r['X-Powered-By']}")
+        print(f"Framework: {r['Framework']}")
         print("=" * 50)
         print()
 
@@ -159,18 +231,6 @@ def main():
     domains = [domain]
     results = [evaluate_domain(domain) for domain in domains]
 
-    headers = [
-        "Domain", "Up?", "Cert Expiry (days)", "SPF", "DKIM", "DMARC",
-        "Strict-Transport-Security", "X-Frame-Options",
-        "X-XSS-Protection", "Content-Security-Policy"
-    ]
-
-    table = [[
-        r["Domain"], r["Up"], r["SSL Days Left"], r["SPF"], r["DKIM"], r["DMARC"],
-        r["Strict-Transport-Security"], r["X-Frame-Options"],
-        r["X-XSS-Protection"], r["Content-Security-Policy"]
-    ] for r in results]
-   
     print_results(results)	
 
 if __name__ == "__main__":
