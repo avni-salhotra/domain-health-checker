@@ -13,16 +13,29 @@ def check_http_status(domain):
         return False
 
 def get_ssl_expiry(domain):
-    context = ssl.create_default_context()
     try:
+        print(f"[DEBUG] Attempting SSL check for: {domain}")
+        context = ssl.create_default_context()
         with socket.create_connection((domain, 443), timeout=5) as sock:
             with context.wrap_socket(sock, server_hostname=domain) as ssock:
                 cert = ssock.getpeercert()
-                expiry = datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+                expiry_str = cert['notAfter']
+                expiry = datetime.strptime(expiry_str, "%b %d %H:%M:%S %Y %Z").replace(tzinfo=timezone.utc)
                 days_left = (expiry - datetime.now(timezone.utc)).days
+                print(f"[DEBUG] SSL cert for {domain} expires in {days_left} days")
                 return days_left
-    except Exception:
-        return None
+    except ssl.SSLError as e:
+        print(f"[DEBUG] SSL error for {domain}: {e}")
+        return "SSL handshake failed"
+    except socket.timeout:
+        print(f"[DEBUG] Timeout trying to connect to {domain}")
+        return "Connection timeout"
+    except socket.gaierror:
+        print(f"[DEBUG] DNS resolution failed for {domain}")
+        return "DNS resolution failed"
+    except Exception as e:
+        print(f"[DEBUG] General error for {domain}: {e}")
+        return f"Error: {e}"
 
 def check_mail_records(domain):
     results = {"SPF": "No", "DKIM": "No", "DMARC": "No"}
@@ -62,10 +75,33 @@ def check_mail_records(domain):
     
     return results
 
+def check_security_headers(domain):
+    headers_to_check = [
+        "Strict-Transport-Security",
+        "X-Frame-Options",
+        "X-XSS-Protection",
+        "Content-Security-Policy"
+    ]
+    results = {header: "No" for header in headers_to_check}
+    
+    try:
+        response = requests.get(f"https://{domain}", timeout=5)
+        for header in headers_to_check:
+            if header in response.headers:
+                results[header] = "Yes"
+    except Exception as e:
+        print(f"Failed to fetch headers for {domain}: {e}")
+    
+    return results
+
 def evaluate_domain(domain):
     is_up = check_http_status(domain)
     ssl_days_left = get_ssl_expiry(domain) if is_up else None
+
+    print(f"[DEBUG] Checking {domain} | Up: {is_up} | SSL Days Left: {ssl_days_left}")
+
     mail_results = check_mail_records(domain)
+    header_results = check_security_headers(domain)
 
     return {
         "Domain": domain,
@@ -73,16 +109,47 @@ def evaluate_domain(domain):
         "SSL Days Left": ssl_days_left if ssl_days_left is not None else "-",
         "SPF": mail_results["SPF"],
         "DKIM": mail_results["DKIM"],
-        "DMARC": mail_results["DMARC"]
+        "DMARC": mail_results["DMARC"],
+        "Strict-Transport-Security": header_results["Strict-Transport-Security"],
+        "X-Frame-Options": header_results["X-Frame-Options"],
+        "X-XSS-Protection": header_results["X-XSS-Protection"],
+        "Content-Security-Policy": header_results["Content-Security-Policy"]
     }
+
+def print_results(results):
+    for r in results:
+        print("=" * 50)
+        print(f"Domain: {r['Domain']}")
+        print(f"Up?: {r['Up']}")
+        print(f"Cert Expiry (days): {r['SSL Days Left']}")
+        print(f"SPF: {r['SPF']}")
+        print(f"DKIM: {r['DKIM']}")
+        print(f"DMARC: {r['DMARC']}")
+        print(f"Strict-Transport-Security: {r['Strict-Transport-Security']}")
+        print(f"X-Frame-Options: {r['X-Frame-Options']}")
+        print(f"X-XSS-Protection: {r['X-XSS-Protection']}")
+        print(f"Content-Security-Policy: {r['Content-Security-Policy']}")
+        print("=" * 50)
+        print()
 
 def main():
     domain = input("Enter the domain you want to check: ")
-    domains = [domain]		
+    domains = [domain]
     results = [evaluate_domain(domain) for domain in domains]
 
-    table = [[r["Domain"], r["Up"], r["SSL Days Left"],r["SPF"],r["DKIM"],r["DMARC"]] for r in results]
-    print(tabulate(table, headers=["Domain", "Up?", "Cert Expiry (days)","SPF","DKIM","DMARC"], tablefmt="grid"))
+    headers = [
+        "Domain", "Up?", "Cert Expiry (days)", "SPF", "DKIM", "DMARC",
+        "Strict-Transport-Security", "X-Frame-Options",
+        "X-XSS-Protection", "Content-Security-Policy"
+    ]
+
+    table = [[
+        r["Domain"], r["Up"], r["SSL Days Left"], r["SPF"], r["DKIM"], r["DMARC"],
+        r["Strict-Transport-Security"], r["X-Frame-Options"],
+        r["X-XSS-Protection"], r["Content-Security-Policy"]
+    ] for r in results]
+   
+    print_results(results)	
 
 if __name__ == "__main__":
     main()
