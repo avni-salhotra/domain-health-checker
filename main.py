@@ -10,8 +10,33 @@ import subprocess
 import whois
 import shutil
 import os
+import json
 from datetime import datetime, timezone
 from termcolor import colored
+from email.mime.text import MIMEText
+import smtplib
+
+# Load email secrets
+with open("secrets.json", "r") as f:
+    secrets = json.load(f)
+
+smtp_user = secrets["smtp_user"]
+smtp_pass = secrets["smtp_app_password"]
+alert_recipient = secrets["alert_recipient"]
+
+def send_email_alert(subject, body):
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = smtp_user
+    msg["To"] = alert_recipient
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+        print(f"📧 Alert email sent to {alert_recipient}")
+    except Exception as e:
+        print(f"⚠️ Failed to send alert email: {e}")
 
 def get_color(value, field):
     """Determine 'green', 'yellow', 'red', or None based on field logic."""
@@ -459,6 +484,34 @@ def save_html_report(results, output_dir="reports"):
 
     print(f"📄 HTML report saved to: {filename}")
 
+def save_json_results(results, filename="last_results.json"):
+    with open(filename, "w") as f:
+        json.dump(results, f, indent=2)
+
+def load_previous_results(filename="last_results.json"):
+    if os.path.exists(filename):
+        with open(filename, "r") as f:
+            return json.load(f)
+    return []
+
+def detect_changes(old, new):
+    changes = {}
+    for key in new:
+        if key == "Domain":
+            continue
+        old_val = old.get(key, None)
+        new_val = new[key]
+        if old_val != new_val:
+            old_color = get_color(old_val, key)
+            new_color = get_color(new_val, key)
+            if old_color != new_color or old_val != new_val:
+                changes[key] = {
+                    "from": old_val,
+                    "to": new_val,
+                    "color_change": old_color != new_color
+                }
+    return changes
+
 def main():
             csv_path = "domains.csv"
             domains = []
@@ -516,8 +569,40 @@ def main():
                 result = evaluate_domain(domain)
                 print_results([result])
                 all_results.append(result)
-            
+
+            # 🔍 Load previous scan and detect changes
+            previous_results = load_previous_results()
+            alerts = []
+
+            for current in all_results:
+                domain = current["Domain"]
+                previous = next((r for r in previous_results if r["Domain"] == domain), None)
+                if previous:
+                    changes = detect_changes(previous, current)
+                    if changes:
+                        alerts.append((domain, changes))
+
+            if alerts:
+                    print("\n🚨 Status Changes Detected:")
+                    alert_lines = []
+                    for domain, changes in alerts:
+                        alert_lines.append(f"\n🌐 {domain}")
+                        print(f"\n🌐 {domain}")
+                        for field, change in changes.items():
+                            from_val = change["from"]
+                            to_val = change["to"]
+                            line = f" - {field}: {from_val} → {to_val} {'⚠️' if change['color_change'] else ''}"
+                            alert_lines.append(line)
+                            print(line)
+                    
+                    subject = "🔔 Domain Health Alert – Status Change Detected"
+                    body = "\n".join(alert_lines)
+                    send_email_alert(subject, body)
+            else:
+                    print("\n✅ No significant status changes detected.")
+
             save_html_report(all_results)
+            save_json_results(all_results)
                 
 if __name__ == "__main__":
     main()
