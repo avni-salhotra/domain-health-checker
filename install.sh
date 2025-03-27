@@ -33,6 +33,14 @@ read -p "🕒 Do you want to set up a scheduled scan job now? (y/n/u for uninsta
 
 script_path="$(pwd)/main.py"
 python_path="$(which python3)"
+wrapper_path="$HOME/.domainchecker-wrapper.sh"
+
+# Create wrapper script
+cat > "$wrapper_path" <<EOL
+#!/bin/bash
+exec $python_path $script_path --from-csv
+EOL
+chmod +x "$wrapper_path"
 
 if [[ "$job_choice" == "y" ]]; then
   if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -45,11 +53,11 @@ if [[ "$job_choice" == "y" ]]; then
 <dict>
   <key>Label</key>
   <string>com.domainchecker.job</string>
+  <key>ProgramDescription</key>
+  <string>Domain Health Monitor</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$python_path</string>
-    <string>$script_path</string>
-    <string>--from-csv</string>
+    <string>$wrapper_path</string>
   </array>
   <key>StartInterval</key>
   <integer>900</integer>
@@ -69,7 +77,7 @@ EOF
 
   else
     # Linux cron job
-    (crontab -l 2>/dev/null | grep -v "$script_path"; echo "*/15 * * * * $python_path $script_path --from-csv >> \$HOME/domainchecker.log 2>&1") | crontab -
+    (crontab -l 2>/dev/null | grep -v "$wrapper_path"; echo "*/15 * * * * $wrapper_path >> \$HOME/domainchecker.log 2>&1") | crontab -
     echo "📅 Linux job scheduled via crontab."
   fi
 
@@ -78,10 +86,12 @@ elif [[ "$job_choice" == "u" ]]; then
     plist_file="$HOME/Library/LaunchAgents/com.domainchecker.job.plist"
     launchctl bootout gui/$(id -u) "$plist_file" &>/dev/null
     rm -f "$plist_file"
+    rm -f "$wrapper_path"
     echo "🗑️ Removed scheduled job on macOS."
     echo "🔁 You may need to log out or reboot to remove background item from UI."
   else
-    crontab -l | grep -v "$script_path" | crontab -
+    crontab -l | grep -v "$wrapper_path" | crontab -
+    rm -f "$wrapper_path"
     echo "🗑️ Removed scheduled job from Linux crontab."
   fi
 
