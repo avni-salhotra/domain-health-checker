@@ -22,9 +22,9 @@ The Domain Health Checker monitors domain health across a wide set of security a
 
 ## 🚀 Setup
 
-### 1. Clone and prepare environment
+```### 1. Clone and prepare environment
 
-```bash
+bash
 git clone <repo-url>
 cd domain-checker
 python3 -m venv venv
