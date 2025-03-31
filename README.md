@@ -24,12 +24,29 @@ The Domain Health Checker monitors domain health across a wide set of security a
 
 ### 1. Clone and prepare environment
 
-```bash
+
 git clone <repo-url>
 cd domain-checker
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
+📁 Before You Start
+
+Make sure you’re downloading or cloning the entire repo folder, not just individual files.
+
+✅ You should see the folder domain-checker/ after cloning. Run all commands from inside that folder.
+📄 If you’re missing this structure, re-clone using:
+git clone <repo-url>
+
+📝 Required Files & Folders
+
+This project will auto-create some files after the first successful run, but here’s what you should have or expect:
+	•	domain_checker.py — main script
+	•	domains.csv — domain list (you’ll be prompted to create it if missing)
+	•	secrets.json or .env — for email alerting
+	•	reports/ — this folder is created automatically after your first scan
+	•	last_results.json — created on first run to enable diff-based alerting
 
 2. Install Go tools
 
@@ -66,6 +83,14 @@ HTML reports are saved in the reports/ folder. Diff logic runs off last_results.
 ⚙️ Uninstall / Reconfigure
 
 Just re-run install.sh and choose u to uninstall the scheduled job. You can also reschedule anytime.
+
+💬 Troubleshooting
+
+If something doesn’t work:
+	•	✅ Make sure you’re running from inside the project folder
+	•	✅ Run the script using: python3 domain_checker.py --from-csv
+	•	✅ If something looks off, re-clone the repo clean and re-run setup
+
 
 For fun here is a rap song!!
 
